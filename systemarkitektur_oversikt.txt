@@ -1,0 +1,485 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                   SYSTEMARKITEKTUR - ACTM WEBSHOP ADMIN                             ║
+║                   ========================================                          ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+  ┌──────────────────────────────────────────────────────────────────────────────────┐
+  │                        BRUKEREN (Admin-ansatt)                                   │
+  │              ┌─────────────────────────────────────┐                             │
+  │              │  Åpner nettleser på localhost:5173    │                             │
+  │              │  (react-mappen: npm run dev)          │                             │
+  │              └─────────────────────────────────────┘                             │
+  └──────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          │ Klikker / navigerer
+                                          ▼
+  ┌──────────────────────────────────────────────────────────────────────────────────┐
+  │                     REACT-FRONTEND (Vite dev-server :5173)                       │
+  │                                                                                  │
+  │  ┌──────────────────────────────────────────────────────────────────────────┐    │
+  │  │                        main.jsx                                           │    │
+  │  │  Inngangspunkt. Renderer <App /> inni <BrowserRouter>.                   │    │
+  │  │  Importerer index.css (globale stiler).                                  │    │
+  │  └──────────────────────────────────────────────────────────────────────────┘    │
+  │                                   │                                               │
+  │                                   ▼                                               │
+  │  ┌──────────────────────────────────────────────────────────────────────────┐    │
+  │  │                         App.jsx                                          │    │
+  │  │                                                                          │    │
+  │  │  useState: loggedInUser (null)  <─── Hentes fra Sanity ved oppstart      │    │
+  │  │                                        via GROQ-spørring #1              │    │
+  │  │                                                                          │    │
+  │  │  ┌──────────────────────────────────────────────────────────────────┐    │    │
+  │  │  │  <Routes>                                                       │    │    │
+  │  │  │    <Route element={<Layout loggedInUser={loggedInUser} />}>    │    │    │
+  │  │  │      ├── "/"             → Frontpage (får loggedInUser som prop)│    │    │
+  │  │  │      ├── "/order/:orderId" → Order                             │    │    │
+  │  │  │      ├── "/crm"          → Customers                          │    │    │
+  │  │  │      ├── "/customer/:id" → CustomerDetail                     │    │    │
+  │  │  │      ├── "/search"       → SearchResults                      │    │    │
+  │  │  │      └── "*"             → Show404 (catch-all)                 │    │    │
+  │  │  └──────────────────────────────────────────────────────────────────┘    │    │
+  │  └──────────────────────────────────────────────────────────────────────────┘    │
+  │                                    │                                              │
+  │                    ┌───────────────┴────────────────┐                             │
+  │                    ▼                                ▼                              │
+  │  ┌──────────────────────────────┐    ┌───────────────────────────────┐            │
+  │  │       Layout.jsx             │    │    Hver side-komponent        │            │
+  │  │  ┌──────────────────────┐    │    │                               │            │
+  │  │  │ <header>             │    │    │  useEffect(() => {            │            │
+  │  │  │   <h1>ACTM Webshop</h1>│   │    │    sanityClient.fetch(       │            │
+  │  │  │   <Search />         │    │    │      GROQ-spørring, params    │            │
+  │  │  │   <p>Welcome ...</p>  │    │    │    ).then(setData)           │            │
+  │  │  │ </header>            │    │    │  }, [])                      │            │
+  │  │  │ <MainMenu />         │    │    │                               │            │
+  │  │  │ <main>               │    │    │  return ( <JSX med data> )   │            │
+  │  │  │   <Outlet />  ←─── child route rendereres HER                  │            │
+  │  │  │ </main>              │    │    └───────────────────────────────┘            │
+  │  │  │ <footer>...</footer> │    │                                                │
+  │  │  └──────────────────────┘    │                                                │
+  │  └──────────────────────────────┘                                                │
+  └──────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                          ┌───────────────┴──────────────────┐
+                          │          GROQ-spørringer          │
+                          │      (over HTTPS til Sanity)      │
+                          ▼                                   ▼
+  ┌──────────────────────────────────────────────────────────────────────────────────┐
+  │                    SANITY.IO (Skybasert CMS/Backend)                             │
+  │                                                                                  │
+  │  Datasett: production  │  Prosjekt-ID: zxpwxip2                                 │
+  │                                                                                  │
+  │  ┌──────────────────────────────────────────────────────────────────────────┐    │
+  │  │                      SANITY-DATABASEN                                     │    │
+  │  │                                                                          │    │
+  │  │   ┌────────────────────────────────────────────────────────────┐         │    │
+  │  │   │  admin-dokumenter                                           │         │    │
+  │  │   │  [0] Alex Hovland (super)                                   │         │    │
+  │  │   │  [1] Mia Berge (editor)                                     │         │    │
+  │  │   └────────────────────────────────────────────────────────────┘         │    │
+  │  │   ┌────────────────────────────────────────────────────────────┐         │    │
+  │  │   │  category-dokumenter                                        │         │    │
+  │  │   │  Desktop Computers, Laptops, Tablets, Smartphones,          │         │    │
+  │  │   │  Accessories                                                 │         │    │
+  │  │   └────────────────────────────────────────────────────────────┘         │    │
+  │  │   ┌────────────────────────────────────────────────────────────┐         │    │
+  │  │   │  product-dokumenter (47 stk)                               │         │    │
+  │  │   │  Hvert produkt har: productname, price, stock, image,      │         │    │
+  │  │   │  description, categories[] (ref til category)              │         │    │
+  │  │   └────────────────────────────────────────────────────────────┘         │    │
+  │  │   ┌────────────────────────────────────────────────────────────┐         │    │
+  │  │   │  customer-dokumenter (11 stk)                              │         │    │
+  │  │   │  Hver kunde har: firstname, lastname, email, address       │         │    │
+  │  │   └────────────────────────────────────────────────────────────┘         │    │
+  │  │   ┌────────────────────────────────────────────────────────────┐         │    │
+  │  │   │  order-dokumenter (25 stk)                                 │         │    │
+  │  │   │  Hver ordre har: orderid, status, customer (ref),          │         │    │
+│  │   │  products[] (embedded orderproduct-objekter)               │         │    │
+  │  │   │    ┌────────────────────────────────────────────┐         │         │    │
+  │  │   │    │ orderproduct (embedded objekt)              │         │         │    │
+  │  │   │    │ product (ref til product) + quantity        │         │         │    │
+  │  │   │    └────────────────────────────────────────────┘         │         │    │
+  │  │   └────────────────────────────────────────────────────────────┘         │    │
+  │  └──────────────────────────────────────────────────────────────────────────┘    │
+  │                                                                                  │
+  │  ↑ Sanity Studio (uin-eksamensforberedelse/:3333)                               │
+  │    sanity.config.js + schemaTypes/ = admin-grensesnitt for redigering           │
+  │                                                                                  │
+  │  ↑ sanityressurser/ = referansekopi av schemaTypes                              │
+  │    (brukes til å sette opp eget Sanity-prosjekt)                                │
+  │                                                                                  │
+  └──────────────────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                DATAFLOW-DIAGRAM: HVA SKJER NÅR BRUKEREN GJØR NOE                    ║
+║                ====================================================                  ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+
+SCENARIO 1: BRUKER ÅPNER WEBSHOP ADMIN (går til /)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  Nettleser: localhost:5173
+       │
+       ▼
+  main.jsx: <BrowserRouter> rendrer <App />
+       │
+       ▼
+  App.jsx: useState(null) oppretter loggedInUser-state
+       │
+       ▼
+  App.jsx useEffect: KJØRER VED FØRSTE RENDERRING
+       │
+       │  GROQ: *[_type == "admin"][0]{ firstname, lastname, email, role }
+       │
+       ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │  sanityClient.fetch(query)                                │
+  │  → HTTPS-forespørsel til Sanity.io                       │
+  │  → Sanity returnerer admin-objektet                      │
+  │  → setLoggedInUser(user) oppdaterer state                │
+  │  → React re-renderer App med loggedInUser satt           │
+  └──────────────────────────────────────────────────────────┘
+       │
+       ▼
+  Routes matcher "/" → <Frontpage loggedInUser={loggedInUser} />
+       │
+       ▼
+  Layout.jsx rendrer:
+    ┌──────────────────────────────────────┐
+    │ <header>                             │
+    │   <h1>ACTM Webshop Admin</h1>        │
+    │   <Search />                         │
+    │   <p>Welcome Alex Hovland</p>        │
+    │ </header>                            │
+    │ <MainMenu />                         │
+    │ <main><Outlet /></main>  ← Frontpage │
+    │ <footer>...</footer>                 │
+    └──────────────────────────────────────┘
+       │
+       ▼
+  Frontpage.jsx useEffect: KJØRER VED FØRSTE RENDERRING
+       │
+       │  GROQ med parametre:
+       │  *[_type == "order" && _createdAt >= $startOfMonth && _createdAt < $endOfMonth]
+       │  { orderid, status, _createdAt,
+       │    products[]{ quantity, product->{ price, productname } } }
+       │
+       ▼
+  sanityClient.fetch(query, { startOfMonth, endOfMonth })
+       │
+       ▼  ← Array med månedens ordrer returneres
+       │
+  Frontpage regner ut totalQuantity og totalPrice per ordre
+  (orders.map → reduce for hver ordre)
+       │
+       ▼
+  setOrders(ordersWithTotals) → React re-renderer
+       │
+       ▼
+  ┌──────────────────────────────────────┐
+  │ Viser:                                │
+  │ Active Orders This Month (tabell):    │
+  │ ┌──────────┬────────┬───────┬──────┐ │
+  │ │Order ID  │ Status │ Date  │Price │ │
+  │ ├──────────┼────────┼───────┼──────┤ │
+  │ │abc123    │ open   │ ...   │$499  │ │
+  │ │def456    │ packed │ ...   │$1299 │ │
+  │ └──────────┴────────┴───────┴──────┘ │
+  │                                      │
+  │ Monthly stats:                       │
+  │  • Total orders: 12                  │
+  │  • Total products sold: 45           │
+  │  • Total revenue: $8,452.00          │
+  │    (KUN HVIS loggedInUser.role       │
+  │     === 'super')                     │
+  └──────────────────────────────────────┘
+
+
+SCENARIO 2: BRUKER KLIKKER PÅ EN ORDRE (går til /order/:orderId)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  Bruker klikker på <Link to={`/order/${order.orderid}`}>
+       │
+       ▼
+  React Router matcher "/order/:orderId"
+  → useState(null) for order lages på nytt (komponent mountes)
+       │
+       ▼
+  Order.jsx useEffect(, [orderId]): KJØRER
+       │
+       │  GROQ med parameter $orderId:
+       │  *[_type == "order" && orderid == $orderId][0]{
+       │    _id, orderid, status,
+       │    products[]{ quantity,
+       │      product->{ productname, price, "imageUrl": image.asset->url }
+       │    }
+       │  }
+       │
+       ▼
+  sanityClient.fetch(query, { orderId })
+       │
+       ▼  ← Ordre-objekt returneres
+       │
+  setOrder(data) → React re-renderer
+       │
+       ▼
+  ┌──────────────────────────────────────┐
+  │ Order Details                        │
+  │ Order ID: abc123                     │
+  │ Status: [open ▼]                     │
+  │  ┌────┬─────────┬───┬──────┬──────┐  │
+  │  │Bilde│Product  │Qty│Price │Total │  │
+  │  ├────┼─────────┼───┼──────┼──────┤  │
+  │  │ 🖼 │Laptop X │ 2 │$999  │$1998 │  │
+  │  │ 🖼 │Mouse Y  │ 1 │ $49  │ $49  │  │
+  │  └────┴─────────┴───┴──────┴──────┘  │
+  └──────────────────────────────────────┘
+       │
+  BRUKER ENDRER STATUS TIL "packed":
+       │
+       ▼
+  handleStatusChange kalles:
+       │  1. setSaving(true) → "Saving..." vises
+       │  2. sanityClient.patch(order._id)
+       │       .set({ status: newStatus })
+       │       .commit()
+       │     → PATCH-forespørsel til Sanity
+       │  3. setOrder({ ...order, status: newStatus })
+       │  4. setSaving(false)
+       │
+       ▼
+  ┌──────────────────────────────────────┐
+  │  Sanity-databasen oppdateres:        │
+  │  order.abc123.status → "packed"      │
+  └──────────────────────────────────────┘
+
+
+SCENARIO 3: BRUKER GÅR TIL CRM (kundeliste → /crm)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  React Router matcher "/crm"
+       │
+       ▼
+  Customers.jsx useEffect: KJØRER VED MOUNT
+       │
+       │  GROQ: *[_type == "customer"] | order(lastname, firstname)
+       │        { _id, firstname, lastname, city, email }
+       │
+       ▼
+  sanityClient.fetch(query) → setCustomers(data)
+       │
+       ▼
+  Viser: Klikkbar liste over alle kunder (Link til /customer/:id)
+
+
+SCENARIO 4: BRUKER KLIKKER PÅ EN KUNDE (→ /customer/:id)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  CustomerDetail.jsx useEffect(, [id]):
+       │
+       │  GROQ med joined query (to spørringer i én):
+       │  {
+       │    "customer": *[_type == "customer" && _id == $id][0]{ ... },
+       │    "orders": *[_type == "order" && customer._ref == $id]
+       │              | order(_createdAt desc){ ... }
+       │  }
+       │
+       ▼
+  Viser kundeinfo + alle ordrene deres med linker
+
+
+SCENARIO 5: BRUKER SØKER ETTER KUNDE
+═══════════════════════════════════════════════════════════════════════════════════════
+
+  Search.jsx: Bruker skriver "John" i input-feltet
+       │
+       ▼
+  useState oppdaterer query for hvert tastetrykk
+  (controlled component: value={query} onChange={setQuery})
+       │
+  Bruker trykker "Search" → handleSubmit kalles
+       │
+       ▼
+  navigate(`/search?q=${encodeURIComponent(query)}`)
+       │
+       ▼
+  React Router matcher "/search"
+       │
+       ▼
+  SearchResults.jsx:
+  useSearchParams() leser ?q=John
+       │
+       ▼
+  useEffect(, [q]): KJØRER
+       │
+       │  GROQ: *[_type == "customer" && (firstname match $term ||
+       │         lastname match $term || email match $term)]
+       │        { _id, firstname, lastname, email, city }
+       │        | order(lastname, firstname)
+       │  $term = "*John*"  (wildcard = contains-søk)
+       │
+       ▼
+  sanityClient.fetch(query, { term: `*${q}*` })
+       │
+       ▼
+  setResults(data), setLoading(false) → React re-renderer
+       │
+       ▼
+  Viser søkeresultater eller "No customers found matching ..."
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                   KOMPONENTHIERARKI (Trestruktur)                                   ║
+║                   ====================================                               ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+  main.jsx
+    └── <BrowserRouter>
+          └── App.jsx  [STATE: loggedInUser]
+                │
+                │   useEffect: HENTER ADMIN FRA SANITY (GROQ #1)
+                │   setLoggedInUser(data)
+                │
+                └── <Routes>
+                      └── <Route element={<Layout loggedInUser={...} />}>
+                            │
+                            ├── Layout.jsx [PROPS: loggedInUser]
+                            │     ├── <header>
+                            │     │     ├── <h1>ACTM Webshop Admin</h1>
+                            │     │     ├── Search.jsx [STATE: query]
+                            │     │     │     useNavigate, useSearchParams
+                            │     │     │     → navigerer til /search?q=...
+                            │     │     └── <p>Welcome {loggedInUser.name}</p>
+                            │     ├── MainMenu.jsx (Home, CRM)
+                            │     ├── <main>
+                            │     │     └── <Outlet />  ← child route renders HERE
+                            │     └── <footer>...</footer>
+                            │
+                            ├── path="/" → Frontpage.jsx [PROPS: loggedInUser]
+                            │     [STATE: orders]
+                            │     useEffect: GROQ #2 (månedens ordrer)
+                            │     → Tabell + statistikk (rollebasert visning)
+                            │
+                            ├── path="/order/:orderId" → Order.jsx
+                            │     [STATE: order, totalPrice, saving]
+                            │     useParams → orderId
+                            │     useEffect: GROQ #3 (ordre-detaljer)
+                            │     handleStatusChange: PATCH-mutasjon til Sanity
+                            │
+                            ├── path="/crm" → Customers.jsx
+                            │     [STATE: customers]
+                            │     useEffect: GROQ #4 (alle kunder)
+                            │     → Liste med Link til /customer/:id
+                            │
+                            ├── path="/customer/:id" → CustomerDetail.jsx
+                            │     [STATE: customer, orders]
+                            │     useParams → id
+                            │     useEffect: GROQ #5 (joined query)
+                            │     → Kundeinfo + ordrene deres
+                            │
+                            ├── path="/search" → SearchResults.jsx
+                            │     [STATE: results, loading]
+                            │     useSearchParams → q
+                            │     useEffect: GROQ #6 (søk med match)
+                            │     → Listen med søkeresultater
+                            │
+                            └── path="*" → Show404.jsx
+                                  404.png + melding
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                   STATE-ENDRINGER OVER TID (Livssyklus)                             ║
+║                   ========================================                           ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+  TID:     t0 (mount)           t1 (data kommer)       t2 (bruker interagerer)
+           ════════════         ═══════════════════     ════════════════════════
+
+  App:     loggedInUser=null    loggedInUser={admin}    loggedInUser={admin}
+           useEffect kaller     React re-renderer       (uendret)
+           sanityClient.fetch   Layout viser navn
+
+  Front:   orders=[]            orders=[...12 ordrer]   orders=[...12 ordrer]
+           useEffect kaller     React re-renderer       (uendret)
+           sanityClient.fetch   Tabell + statistikk
+                               ├── isSuperAdmin=true
+                               │   → viser revenue     revenue synlig
+                               └── isSuperAdmin=false
+                                   → "kun for admins"  skjult
+
+  Order:   order=null           order={...}             order.status="packed"
+           saving=false         totalPrice=$1299        saving=false
+           useEffect kaller                              (etter PATCH)
+           sanityClient.fetch                          saving=true → false
+                                                         React re-renderer
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                   CSS/STYLING-STRUKTUR                                              ║
+║                   =====================                                             ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+  index.css (global, importeres i main.jsx)
+  ├── CSS-variabler :root { --primary: #646cff; }
+  ├── prefers-color-scheme (light/dark mode)
+  ├── #root (1126px bred, sentrert, border)
+  ├── tabell-stiler (svart header, hvit tekst)
+  └── #top grid (active-orders + statistics side ved side)
+
+  App.css (importeres i App.jsx)
+  └── Vite boilerplate (hero-animasjoner, delvis ubrukt)
+
+  styles/Layout.css (importeres i Layout.jsx)
+  ├── .layout (flex column, min-height: 100vh)
+  ├── .header (svart bakgrunn, lyseblå tekst #a3d2f6)
+  ├── .navbar (sticky top, lyseblå bakgrunn)
+  ├── .main-content (flex: 1, max-width 1400px, sentrert)
+  ├── .footer (svart bakgrunn, grid layout, 4 kolonner)
+  └── @media (max-width: 768px) (responsivt design)
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                   SAMMENDRAG - NØKKELPUNKTER (TIL EKSAMEN)                          ║
+║                   =========================================                           ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │                                                                           │
+  │  🏗 ARKITEKTUR:                                                          │
+  │     React frontend (Vite :5173) + Sanity backend (.io) + Sanity Studio    │
+  │     (:3333). To separate npm-prosjekter. Kommunikasjon via HTTPS/GROQ.   │
+  │                                                                           │
+  │  📦 DATAFLYT:                                                            │
+  │     Bruker → React-komponent → useEffect → sanityClient.fetch(GROQ)      │
+  │     → Sanity API → JSON-svar → setState() → React re-renderer → DOM     │
+  │                                                                           │
+  │  🔄 STATE:                                                               │
+  │     Kun lokal useState i hver komponent. Ingen global state (Context).    │
+  │     loggedInUser prop-dilles App → Layout → Frontpage.                   │
+  │                                                                           │
+  │  🛣 ROUTING:                                                             │
+  │     React Router v7, nested routes med Layout + Outlet.                  │
+  │     useParams for :orderId og :id. useSearchParams for ?q=.              │
+  │                                                                           │
+  │  🗄 SCHEMAS:                                                              │
+  │     6 typer: admin, category, customer, product, order, orderproduct.    │
+  │     5 dokumenter + 1 embedded objekt (orderproduct).                     │
+  │     Relasjoner via references: order → customer, orderproduct → product, │
+  │     product → category.                                                  │
+  │                                                                           │
+  │  🔍 GROQ:                                                                │
+  │     6 spørringer totalt. Viktige features:                               │
+  │     • Reference dereference: product->{ price }                          │
+  │     • Wildcard match: firstname match $term                              │
+  │     • Joined queries: { "key": *[...], "key2": *[...] }                  │
+  │     • Bilde-URL: "url": image.asset->url                                 │
+  │                                                                           │
+  │  🎨 CSS:                                                                 │
+  │     Ren CSS (3 filer). Ingen Sass. CSS-variabler, flexbox, grid,         │
+  │     sticky navbar, media queries for responsivitet.                      │
+  │     For Sass: npm install -D sass, bytt .css til .scss.                 │
+  │                                                                           │
+  └────────────────────────────────────────────────────────────────────────────┘
