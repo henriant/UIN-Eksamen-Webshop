@@ -1,0 +1,765 @@
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                      ║
+║     useState — useEffect — Props & Prop Drilling                                     ║
+║     =============================================                                     ║
+║                                                                                      ║
+║     En utdypende forklaring til muntlig eksamen                                      ║
+║     ACTM Webshop Admin — React 19 + Sanity.io                                       ║
+║                                                                                      ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  1.  useState                                                                        │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+1.1  HVA ER useState?
+══════════════════════
+
+    useState er en React-hook som lar komponenter ha "hukommelse". I ren JavaScript
+    forsvinner alle lokale variabler når en funksjon er ferdig — men React-komponenter
+    må huske data på tvers av renderinger (f.eks. hva brukeren har skrevet i et
+    søkefelt, eller data hentet fra et API).
+
+    useState returnerer en array med TO verdier:
+      1. State-variabelen  — den nåværende verdien (les)
+      2. Setter-funksjonen — en funksjon som oppdaterer verdien (skriv)
+
+    Når setter-funksjonen kalles:
+      → React oppdaterer state
+      → Komponenten re-renderer (kjøres på nytt)
+      → JSX-en oppdateres i nettleseren
+
+    Syntaks:
+      const [stateVariabel, setStateVariabel] = useState(initialVerdi)
+
+    Eksempel fra pensum:
+      const [teller, setTeller] = useState(0)
+      // teller = 0 (startverdi)
+      // setTeller(5) → teller blir 5, komponenten rendrer på nytt
+
+
+1.2  HVORFOR BRUKE useState?
+════════════════════════════
+
+    Uten useState ville React-komponenter være statiske — de kunne ikke reagere på
+    brukerinput, hente data asynkront, eller oppdatere seg selv. useState gir:
+
+    ✔ Reaktivitet — endringer i state fører automatisk til oppdatert brukergrensesnitt
+    ✔ Isolasjon — hver komponent har sin egen state, uavhengig av andre komponenter
+    ✔ Forutsigbarhet — state oppdateres kun via setter-funksjonen (aldri direkte mutasjon)
+
+
+1.3  HVORDAN BRUKES useState I PROSJEKTET?
+═══════════════════════════════════════════
+
+    Prosjektet bruker useState i 7 av 10 komponenter. Her er hver enkelt:
+
+
+    A) App.jsx — linje 14
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [loggedInUser, setLoggedInUser] = useState(null)
+
+      Hva:     Lagrer informasjon om hvem som er logget inn (admin-brukeren)
+      Hvorfor: Må hentes asynkront fra Sanity. Frem til data kommer, er verdien
+               null. Når data kommer, oppdateres state og komponenten re-renderer.
+      Initial: null — "vet ikke enda" (vi venter på API-kall)
+      Type:    Object (admin-dokument) eller null
+
+      Endres:  useEffect → sanityClient.fetch() → setLoggedInUser(data)
+               (se useEffect-delen for detaljer)
+
+
+    B) Frontpage.jsx — linje 6
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [orders, setOrders] = useState([])
+
+      Hva:     Liste over denne månedens ordrer
+      Hvorfor: Hentes asynkront fra Sanity. Start med tom array [] slik at
+               .map() ikke krasjer (sikker tilstand før data kommer).
+      Initial: [] — tom liste, komponenten viser "ingen data" inntil videre
+      Type:    Array av ordre-objekter
+
+      Endres:  useEffect → sanityClient.fetch(GROQ #2) → setOrders(data)
+
+
+    C) Order.jsx — linje 14-16
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [order, setOrder] = useState(null)
+      const [totalPrice, setTotalPrice] = useState(0)
+      const [saving, setSaving] = useState(false)
+
+      order:
+        Hva:     Detaljene for én spesifikk ordre
+        Initial: null — "ikke lastet enda"
+        Endres:  useEffect → sanityClient.fetch(GROQ #3) → setOrder(data)
+
+      totalPrice:
+        Hva:     Summen av alle produkter i ordren (quantity × price)
+        Initial: 0 — før data er hentet
+        Endres:  Samme useEffect, regnes ut med .reduce() → setTotalPrice(total)
+
+      saving:
+        Hva:     Om vi er midt i å lagre en status-endring til Sanity
+        Initial: false — ikke i ferd med å lagre
+        Endres:  true → når brukeren endrer status (linje 47)
+                 false → når Sanity har svart at lagring er OK (linje 53)
+        Brukes:  <select disabled={saving}> — låser dropdown under lagring
+                 {saving && <span> Saving…</span>} — viser spinner
+
+
+    D) Customers.jsx — linje 6
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [customers, setCustomers] = useState([])
+
+      Hva:     Alle kunder fra Sanity, sortert alfabetisk
+      Initial: [] — tom liste
+      Endres:  useEffect → sanityClient.fetch(GROQ #4) → setCustomers(data)
+
+
+    E) CustomerDetail.jsx — linje 7-8
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [customer, setCustomer] = useState(null)
+      const [orders, setOrders] = useState([])
+
+      customer:
+        Hva:     En spesifikk kunde
+        Initial: null — "ikke lastet enda"
+        Merk:    sjekkes med  if (!customer) return <p>Loading...</p>  (linje 27)
+
+      orders:
+        Hva:     Kundens ordrer
+        Initial: [] — tom liste
+
+
+    F) SearchResults.jsx — linje 8-9
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [results, setResults] = useState([])
+      const [loading, setLoading] = useState(false)
+
+      results:
+        Hva:     Kunder som matcher søkeordet
+        Initial: [] — tom liste
+
+      loading:
+        Hva:     Om søket pågår (vi venter på Sanity)
+        Initial: false — ikke i gang med søk
+        Endres:  → true  rett før sanityClient.fetch() (linje 17)
+                 → false rett etter setResults(data) (linje 25)
+        Brukes:  {loading ? <p>Searching...</p> : <ul>...</ul>} (linje 33)
+
+
+    G) Search.jsx — linje 7
+    ═══════════════════════════════════════════════════════════════════════════════════
+      const [query, setQuery] = useState(searchParams.get('q') || '')
+
+      Hva:     Teksten brukeren har skrevet i søkefeltet
+      Hvorfor: Må huske hva brukeren skriver mellom hvert tastetrykk
+      Initial: Hvis URL-en har ?q=noe, start med det; ellers tom streng
+      Brukes:  <input value={query} onChange={(e) => setQuery(e.target.value)} />
+               Dette kalles en "controlled component" — input-feltets verdi styres
+               av React state, ikke av nettleseren.
+
+
+1.4  SCENARIO: Endre status på en ordre (useState i praksis)
+═══════════════════════════════════════════════════════════════════════════════════════
+
+    Order.jsx:
+
+    1. Brukeren velger "packed" i dropdown (linje 65-76)
+    2. handleStatusChange kalles (linje 45-54)
+    3. setSaving(true)              → <select> låses, "Saving..." vises
+    4. sanityClient.patch(...).set({ status }).commit()  → lagrer til Sanity
+    5. setOrder({...order, status}) → oppdaterer order lokalt
+    6. setSaving(false)             → <select> låses opp, "Saving..." fjernes
+
+    Hver setState kaller trigger én re-rendring. Ett klikk gir altså 3 re-renderinger:
+      1. setSaving(true)           → knapp låses
+      2. setOrder(...) +           → ny status vises
+      3. setSaving(false)          → knapp låses opp
+
+
+1.5  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hva hadde skjedd om vi ikke brukte useState for query i Search.jsx?"
+      → Input-feltet ville ikke husket hva brukeren skriver ved re-render.
+        Hvert tastetrykk ville tømt feltet.
+
+    ✏ "Hvorfor initialiseres orders med [] og ikke null?"
+      → Fordi .map() krasjer på null (kan ikke .map() på null).
+        [] er en "trygg" startverdi som gjør at komponenten fungerer selv
+        før data er hentet.
+
+    ✏ "Hva er forskjellen på initialverdiene null og []?"
+      → null = "finnes ikke / ikke lastet". Brukes for enkeltobjekter.
+      → [] = "tom liste". Brukes for arrays. Tillater .map() uten krasj.
+
+
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  2.  useEffect                                                                       │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+2.1  HVA ER useEffect?
+═══════════════════════
+
+    useEffect er en React-hook som lar deg utføre "sideeffekter" i komponentene dine.
+    En sideeffekt er noe som skjer utenfor Reacts normale renderingsflyt:
+
+      ✔ Datahenting (API-kall) ← DETTE BRUKER VI DET TIL
+      ✔ Manuell DOM-manipulasjon
+      ✔ Timere (setTimeout/setInterval)
+      ✔ Abonnementer (WebSocket, osv.)
+
+    useEffect tar TO argumenter:
+      1. En funksjon (kalles når effekten skal kjøre)
+      2. En dependency-array (styrer NÅR effekten skal kjøre)
+
+    Syntaks:
+      useEffect(() => {
+        // Sideeffekten — kjører når dependencies endrer seg
+      }, [dependency1, dependency2])
+
+    Tom dependency-array [] betyr: kjør kun ved første gangs montering (mount)
+    Ingen dependency-array: kjør ved ALLE renderinger (unngå dette!)
+
+
+2.2  HVORFOR BRUKE useEffect?
+══════════════════════════════
+
+    Uten useEffect kunne vi ikke hentet data fra Sanity. useEffect gir:
+
+    ✔ Tidsriktig utførelse — kjører ETTER at komponenten er rendret i DOM
+    ✔ Kontroll — dependency-array bestemmer nøyaktig når effekten trigges
+    ✔ Asynkron støtte — kan kalle async-funksjoner inne i useEffect
+    ✔ Opprydding — return-funksjon kjøres ved unmount (rydder opp etter seg)
+
+
+2.3  HVORDAN BRUKES useEffect I PROSJEKTET?
+════════════════════════════════════════════
+
+    Prosjektet har 6 useEffect-kall, ett for hver GROQ-spørring. De følger
+    alle samme mønster (se mønsterboksen etter tabellen).
+
+
+    OVERORDNET MØNSTER (brukes i ALLE komponenter):
+    ═══════════════════════════════════════════════════════════════════════════════════
+
+      useEffect(() => {
+          const fetchData = async () => {
+              const result = await sanityClient.fetch(GROQ_QUERY, params)
+              setStateVariabel(result)  // ← oppdaterer useState
+          }
+          fetchData()   // ← må kalles EKSPLISITT (useEffect vil ikke async)
+      }, [DEPENDENCY])
+
+    VIKTIG: useEffect kan ikke selv være async. Derfor lager vi en indre
+    async-funksjon og kaller den med en gang. Dette er standard-mønsteret
+    for datahenting i React.
+
+
+    A) App.jsx — linje 16-27
+    ═══════════════════════════════════════════════════════════════════════════════════
+      useEffect(() => {
+          const fetchUser = async () => {
+              const query = `*[_type == "admin"][0]{ _id, firstname, lastname, email, role }`
+              const user = await sanityClient.fetch(query)
+              setLoggedInUser(user)  // → useState oppdateres
+          }
+          fetchUser()
+      }, [])  // ← KJØR KUN VED MOUNT (én gang)
+
+      Hvorfor []?: Vi trenger bare å hente admin-brukeren én gang, når
+                   appen starter. Brukeren endrer seg ikke under økten.
+
+      GROQ #1:  Henter første admin-bruker med spesifikke felter
+
+
+    B) Frontpage.jsx — linje 13-42
+    ═══════════════════════════════════════════════════════════════════════════════════
+      useEffect(() => {
+          const fetchOrders = async () => {
+              const query = `*[_type == "order" && _createdAt >= $startOfMonth
+                  && _createdAt < $endOfMonth]{
+                  orderid, status, _createdAt,
+                  products[]{ quantity, product->{ price, productname } }
+              }`
+              const fetchedOrders = await sanityClient.fetch(query,
+                  { startOfMonth, endOfMonth })
+              setOrders(fetchedOrders)  // → useState oppdateres
+          }
+          fetchOrders()
+      }, [])  // ← KJØR KUN VED MOUNT
+
+      Start/ent-of-month: Regnes ut før useEffect (linje 10-11)
+      Deriverte verdier: totalProductsThisMonth og totalRevenueThisMonth
+                         regnes UTENFOR useEffect (linje 44-45) — de kan
+                         beregnes direkte fra orders-state, trenger ikke
+                         egen useEffect
+
+
+    C) Order.jsx — linje 18-43
+    ═══════════════════════════════════════════════════════════════════════════════════
+      useEffect(() => {
+          if (!orderId) return  // ← tidlig retur hvis ingen orderId
+          const fetchOrderDetails = async () => {
+              const query = `*[_type == "order" && orderid == $orderId][0]{
+                  _id, orderid, status,
+                  products[]{ quantity,
+                      product->{ productname, price, "imageUrl": image.asset->url }
+                  }
+              }`
+              const data = await sanityClient.fetch(query,
+                  { orderId: String(orderId) })
+              setOrder(data)
+              setTotalPrice(data?.products.reduce(
+                  (sum, p) => sum + p.quantity * p.product.price, 0))
+          }
+          fetchOrderDetails()
+      }, [orderId])  // ← KJØR VED MOUNT OG HVER GANG orderId ENDRES
+
+      Hvorfor [orderId]?: Hvis brukeren klikker fra ordre A til ordre B,
+                           må vi hente nye data. orderId kommer fra useParams.
+
+      Nytteverdi: Brukeren ser oppdatert informasjon for hver ordre de
+                  besøker, uten å måtte refreshe siden.
+
+
+    D) Customers.jsx — linje 8-17
+    ═══════════════════════════════════════════════════════════════════════════════════
+      useEffect(() => {
+          const fetchCustomers = async () => {
+              const query = `*[_type == "customer"]
+                  | order(lastname, firstname){ _id, firstname, lastname, city, email }`
+              const data = await sanityClient.fetch(query)
+              setCustomers(data)
+          }
+          fetchCustomers()
+      }, [])  // ← KJØR KUN VED MOUNT
+
+
+    E) CustomerDetail.jsx — linje 10-25
+    ═══════════════════════════════════════════════════════════════════════════════════
+      useEffect(() => {
+          const fetchCustomer = async () => {
+              const query = `{
+                  "customer": *[_type == "customer" && _id == $id][0]{ ... },
+                  "orders": *[_type == "order" && customer._ref == $id]
+                      | order(_createdAt desc){ ... }
+              }`
+              const result = await sanityClient.fetch(query, { id })
+              setCustomer(result.customer)
+              setOrders(result.orders)
+          }
+          fetchCustomer()
+      }, [id])  // ← KJØR VED MOUNT OG HVER GANG id ENDRES
+
+      MERK: Én joined query setter TO states (customer og orders).
+            Mer effektivt enn to separate spørringer.
+
+
+    F) SearchResults.jsx — linje 11-28
+    ═══════════════════════════════════════════════════════════════════════════════════
+      useEffect(() => {
+          if (!q) { setResults([]); return }  // tidlig retur
+          const fetchResults = async () => {
+              setLoading(true)               // ← vis "Searching..."
+              const query = `*[_type == "customer" && (
+                  firstname match $term || lastname match $term || email match $term
+              )]{ ... } | order(lastname, firstname)`
+              const data = await sanityClient.fetch(query, { term: `*${q}*` })
+              setResults(data)
+              setLoading(false)              // ← skjul "Searching..."
+          }
+          fetchResults()
+      }, [q])  // ← KJØR VED MOUNT OG HVER GANG SØKEORDET ENDRES
+
+      MERK: Denne har to setLoading-kall for å gi brukeren feedback.
+            Dette kalles "optimistic UI" — vi viser status mens vi venter.
+
+
+2.4  DEPENDENCY-ARRAY — NØKKELEN TIL useEffect
+════════════════════════════════════════════════
+
+    []             → Kjør én gang ved mount (data som ikke endrer seg)
+                     Brukes: App, Frontpage, Customers
+
+    [id]           → Kjør ved mount + hver gang id endres
+    [orderId]      → Brukes: CustomerDetail, Order
+    [q]            → Brukes: SearchResults (nytt søk hver gang brukeren
+                              navigerer til /search?q=noe-nytt)
+
+    (ingen array)  → Kjør ved ALLE renderinger — UNNGÅ! (evig løkke)
+
+
+2.5  SCENARIO: Søk etter kunde (useEffect i praksis)
+══════════════════════════════════════════════════════
+
+    1. Bruker skriver "John" i Search.jsx
+    2. setQuery oppdateres for hvert tastetrykk
+    3. Bruker trykker Search → navigate(`/search?q=John`)
+    4. SearchResults.jsx mounter (eller re-renderer med ny q)
+    5. useEffect([q]) trigges
+    6. setLoading(true) → "Searching..." vises
+    7. sanityClient.fetch(GROQ #6) → HTTPS til Sanity
+    8. Sanity svarer med matchende kunder
+    9. setResults(data) → listen oppdateres
+    10. setLoading(false) → "Searching..." fjernes
+    11. React re-renderer → brukeren ser resultatene
+
+
+2.6  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hva skjer hvis dependency-arrayen i Order.jsx er tom [] istedenfor
+        [orderId]?"
+      → Ordrer lastes kun én gang. Hvis brukeren klikker på en annen ordre,
+        ville URL-en endres, men komponenten ville ikke hente nye data →
+        feil ordre vises.
+
+    ✏ "Hvorfor må fetchData() kalles eksplisitt inne i useEffect?"
+      → useEffect aksepterer ikke async-funksjoner direkte. Den indre
+        async-funksjonen må defineres og deretter kalles.
+
+    ✏ "Hva er forskjellen på useEffect og useState?"
+      → useState: oppretter og lagrer data (minne)
+      → useEffect: utfører handlinger som påvirker data (handling)
+
+    ✏ "Hva hadde skjedd uten useEffect? F.eks. datahenting direkte i
+        komponenten?"
+      → Uendelig løkke: Henting → setState → re-render → henting → ...
+        useEffect forhindrer dette ved å binde hentingen til en dependency.
+
+
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  3.  Props og Prop Drilling                                                         │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+3.1  HVA ER PROPS?
+═══════════════════
+
+    Props (kort for "properties") er måten React-komponenter kommuniserer med
+    hverandre. Data sendes fra en forelder (parent) til et barn (child).
+
+    Tenk på en React-komponent som en JavaScript-funksjon:
+      function Hilsen(navn) {          // ← navn er en "prop"
+          return <p>Hei, {navn}!</p>
+      }
+
+      <Hilsen navn="Kari" />           // ← sender "Kari" som prop
+
+    Props er:
+      ✔ Read-only — barnet kan ALDRI endre props den mottar
+      ✔ Én-veis — data flyter kun nedover i treet (parent → child)
+      ✔ Valgfrie — komponenter kan ha default-verdier
+
+
+3.2  HVA ER PROP DRILLING?
+═══════════════════════════
+
+    Prop drilling er når en prop må sendes gjennom flere komponenter for å nå
+    målet. Tenk på en stafettpinne som sendes fra løper til løper:
+
+      App (eier dataen)
+        │
+        ▼ prop sendes
+      Layout (mottar, sender videre)
+        │
+        ▼ prop sendes
+      Frontpage (mottar, bruker)
+
+    Dette er uproblematisk med 1-2 nivåer, men blir tungvint med mange nivåer.
+    Løsningen på det er Context API eller Redux (se "videreutvikling" lenger ned).
+
+
+3.3  PROPS I PROSJEKTET
+════════════════════════
+
+    Prosjektet bruker props i to tilfeller:
+
+
+    PROP DRILLING-KJEDE: loggedInUser
+    ═══════════════════════════════════════════════════════════════════════════════════
+
+    Nivå 1: App.jsx (linje 14 og 31)
+    ═══════════════════════════════════
+      // App.jsx linje 14: loggedInUser opprettes med useState her
+      const [loggedInUser, setLoggedInUser] = useState(null)
+
+      // App.jsx linje 31: sendes som prop til Layout
+      <Route element={<Layout loggedInUser={loggedInUser} />}>
+
+    Nivå 2: Layout.jsx (linje 6)
+    ═══════════════════════════════════
+      // Layout.jsx linje 6: mottas som prop
+      export default function Layout({ loggedInUser }) {
+
+      // Layout.jsx linje 13: BRUKES direkte i header
+      <p>Welcome {loggedInUser ? `${loggedInUser.firstname}
+          ${loggedInUser.lastname}` : 'No user loaded'}</p>
+
+      // Layout mottar og bruker, men sender også VIDERE til Frontpage
+      // Dette er prop drilling!
+
+    Nivå 3: Frontpage.jsx (linje 5)
+    ═══════════════════════════════════
+      export default function Frontpage({ loggedInUser }) {
+      // Frontpage.jsx linje 7: BRUKES for rollebasert rendering
+      const isSuperAdmin = loggedInUser?.role === 'super'
+
+      // Frontpage.jsx linje 78-84: Betinget visning basert på rolle
+      {isSuperAdmin && <li>Total revenue: $... </li>}
+      {!isSuperAdmin && <p><em>Revenue figures are visible to
+          super admins only.</em></p>}
+
+
+    HVORFOR loggedInUser IKKE prop-dilles til alle sider:
+    ═══════════════════════════════════════════════════════
+
+      // App.jsx linje 32-38:
+      <Route element={<Layout loggedInUser={loggedInUser} />}>
+        <Route path="/" element={<Frontpage loggedInUser={loggedInUser} />} />
+        <Route path="/order/:orderId" element={<Order />} />
+        <Route path="/crm" element={<Customers />} />
+        <Route path="/customer/:id" element={<CustomerDetail />} />
+        <Route path="/search" element={<SearchResults />} />
+        <Route path="*" element={<Show404 />} />
+      </Route>
+
+      Kun Frontpage får loggedInUser som prop. De andre sidene får det
+      ikke fordi de ikke bruker rollen. Dette viser at man sender props
+      "på behov" — ikke til alle komponenter "just in case".
+
+
+    PROPS FRA REACT ROUTER: useParams og useSearchParams
+    ═══════════════════════════════════════════════════════
+
+    Props kan også komme fra React Router via hooks:
+
+      // Order.jsx linje 13 - URL-parameter som "prop" fra router
+      const { orderId } = useParams()
+      // Brukes i GROQ-spørring: *[_type == "order" && orderid == $orderId]
+
+      // CustomerDetail.jsx linje 6
+      const { id } = useParams()
+      // Brukes i GROQ-spørring: *[_type == "customer" && _id == $id]
+
+      // Search.jsx linje 6
+      const [searchParams] = useSearchParams()
+      const query = searchParams.get('q') || ''
+      // Brukes til å initialisere useState og navigere
+
+    Dette er ikke tradisjonelle props i JSX, men konseptet er det samme:
+    data sendes fra en kilde (URL-en) til komponenten.
+
+
+    REKOMMENDERTE RETNINGSLINJER FRA PROSJEKTET
+    ════════════════════════════════════════════
+
+    1. Props som sendes:
+       loggedInUser → et objekt med admin-data
+
+    2. Props som IKKE sendes:
+       sanityClient — importeres direkte i hver fil (linje 4 i App.jsx,
+                      linje 3 i Frontpage.jsx, linje 3 i Order.jsx, osv.)
+       Dette er et bevisst designvalg — klienten er enkel å importere,
+       så det er unødvendig å prop-dille den.
+
+
+3.4  KOMPONENTER UTEN PROPS
+════════════════════════════
+
+    Flere komponenter i prosjektet tar imot NULL props. Dette er komponenter
+    som er helt selvstendige — de trenger ingen ekstern data:
+
+    Komponent         | Fil                    | Hvorfor ingen props
+    ══════════════════|═══════════════════════════════════════════════════
+    MainMenu.jsx      | src/components/        | Statisk navigasjon
+                      | mainmenu.jsx           | Linkene er hardkodet
+    ══════════════════|═══════════════════════════════════════════════════
+    Search.jsx        | src/components/        | Bruker useNavigate og
+                      | Search.jsx             | useSearchParams — får
+                      |                        | data fra router, ikke props
+    ══════════════════|═══════════════════════════════════════════════════
+    Show404.jsx       | src/components/        | Ren presentasjon
+                      | show404.jsx            | Statisk innhold
+    ══════════════════|═══════════════════════════════════════════════════
+    Order.jsx         | src/pages/Order.jsx    | Får orderId fra
+                      |                        | useParams (router)
+    ══════════════════|═══════════════════════════════════════════════════
+    Customers.jsx     | src/pages/             | Henter egne data
+                      | Customers.jsx          | fra Sanity
+    ══════════════════|═══════════════════════════════════════════════════
+    CustomerDetail.jsx| src/pages/             | Får id fra useParams
+                      | CustomerDetail.jsx     | Henter egne data
+
+
+3.5  SCENARIO: Rollebasert visning (props i praksis)
+══════════════════════════════════════════════════════
+
+    1. App.jsx useEffect: Henter admin-bruker fra Sanity
+       { _id: "...", firstname: "Alex", lastname: "Hovland", role: "super" }
+
+    2. setLoggedInUser(data) → App state oppdateres
+
+    3. React re-renderer App:
+       <Route element={<Layout loggedInUser={...hele admin-objektet...} />}>
+         <Route path="/" element={<Frontpage
+             loggedInUser={...samme objekt...} />} />
+       </Route>
+
+    4. Layout mottar { loggedInUser } og viser "Welcome Alex Hovland"
+
+    5. Frontpage mottar { loggedInUser } og regner ut:
+       const isSuperAdmin = loggedInUser?.role === 'super'  // → true
+
+    6. Frontpage rendrer:
+       <li>Total revenue: $8,452.00</li>  ← (siden super === true)
+
+    HVIS ADMIN-BRUKEREN HADDE ROLLEN "editor" (Mia Berge):
+      → isSuperAdmin = false
+      → Revenue-skjules: "Revenue figures are visible to super admins only."
+
+
+3.6  HVORDAN UNNGÅ PROP DRILLING? — Context API (til eksamen)
+═══════════════════════════════════════════════════════════════
+
+    Spørsmål du kan få: "Hvordan ville du unngått prop drilling her?"
+
+    Svar: Med React Context API:
+
+    Steg 1: Opprett en kontekst (ny fil: AuthContext.jsx)
+    ═══════════════════════════════════════════════════════════════
+      import { createContext, useContext, useState, useEffect } from 'react'
+      import sanityClient from '../helpers/sanityClient'
+
+      const AuthContext = createContext(null)
+
+      export function AuthProvider({ children }) {
+          const [loggedInUser, setLoggedInUser] = useState(null)
+
+          useEffect(() => {
+              const fetchUser = async () => {
+                  const user = await sanityClient.fetch(`*[_type == "admin"][0]{...}`)
+                  setLoggedInUser(user)
+              }
+              fetchUser()
+          }, [])
+
+          return (
+              <AuthContext.Provider value={loggedInUser}>
+                  {children}
+              </AuthContext.Provider>
+          )
+      }
+
+      export function useAuth() {
+          return useContext(AuthContext)
+      }
+
+
+    Steg 2: Wrapp App i main.jsx
+    ═══════════════════════════════════════════════════════════════
+      // main.jsx
+      createRoot(document.getElementById('root')).render(
+          <BrowserRouter>
+              <AuthProvider>
+                  <App />
+              </AuthProvider>
+          </BrowserRouter>
+      )
+
+
+    Steg 3: Bruk i komponenter (f.eks. Frontpage.jsx)
+    ═══════════════════════════════════════════════════════════════
+      // Frontpage.jsx
+      import { useAuth } from '../context/AuthContext'
+
+      export default function Frontpage() {  // ← INGEN props!
+          const loggedInUser = useAuth()     // ← henter fra context
+          ...
+      }
+
+    Fordeler: Ingen prop drilling, loggedInUser er tilgjengelig for ALLE
+              komponenter som kaller useAuth().
+
+
+3.7  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hvorfor importeres sanityClient direkte i stedet for å sendes som
+        prop?"
+      → Det er en singleton — kun én instans trengs. Da er direkte import
+        enklere og renere enn prop drilling.
+
+    ✏ "Hvorfor får ikke Order.jsx loggedInUser som prop?"
+      → Den trenger den ikke. Ordersiden har ingen rollebasert logikk.
+        Dette følger prinsippet "send kun props som trengs".
+
+    ✏ "Hva er ulempen med prop drilling i dette prosjektet?"
+      → Per nå er det minimalt (kun 2 nivåer). Men hvis man skulle utvide
+        med flere sider som trenger loggedInUser, måtte man enten sende
+        den til alle nye sider, eller implementere Context.
+
+    ✏ "Hvordan skiller props seg fra state?"
+      → Props = read-only data fra forelder (kan ikke endres av barn)
+      → State = lokal data i komponenten (kan endres av komponenten selv)
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  OPPSUMMERING — SAMMENHENGEN MELLOM DE TRE TEMAENE                                 │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+    Disse tre temaene danner en naturlig dataflyt:
+
+      useState           →     useEffect          →     Props
+      ──────────               ──────────                 ─────
+      OPPRETTER MINNE         HENTER DATA             DISTRIBUERER DATA
+
+    EKSEMPEL MED loggedInUser:
+
+      App.jsx linje 14                                 useState
+      ──────────────────
+      const [loggedInUser, setLoggedInUser] = useState(null)
+      ↑ Oppretter en "boks" som kan huske admin-brukeren
+        Starter tom (null) fordi data ikke er klar enda
+
+      App.jsx linje 16-27                              useEffect
+      ──────────────────────
+      useEffect(() => {
+          const user = await sanityClient.fetch(...)   ← henter fra Sanity
+          setLoggedInUser(user)                        ← fyller boksen
+      }, [])
+      ↑ Henter admin-bruker asynkront når appen starter
+        setLoggedInUser(user) trigger re-render
+
+      App.jsx linje 31                                 Props
+      ──────────────────
+      <Route element={<Layout loggedInUser={loggedInUser} />}>
+      ↑ Sender den fylte boksen til Layout-komponenten
+        Layout viser navn i headeren
+        Layout sender videre til Frontpage
+        Frontpage bruker rollen for å vise/skjule revenue
+
+
+    Dette er den samme historien, bare fortalt fra tre vinkler:
+    1. useState — "hva husker vi?" (minne)
+    2. useEffect — "når og hvordan henter vi?" (handling)
+    3. Props — "hvem får vite om det?" (distribusjon)
