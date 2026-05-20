@@ -1,0 +1,1022 @@
+
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                      ║
+║     Systemarkitektur — Forstå hele systemet fra topp til bunn                         ║
+║     =====================================================================             ║
+║                                                                                      ║
+║     En utdypende forklaring til muntlig eksamen                                      ║
+║     ACTM Webshop Admin — React 19 + Sanity.io                                       ║
+║                                                                                      ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  1.  HVA ER SYSTEMARKITEKTUR?                                                        │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+1.1  HVA BETYR "ARKITEKTUR" I EN WEBSHOP?
+══════════════════════════════════════════
+
+    Systemarkitektur handler om hvordan de ulike delene av et system henger sammen.
+    I en webshop tenker vi på:
+
+      ✔ Hvilke komponenter finnes? (React-komponenter, Sanity-database, osv.)
+      ✔ Hvordan kommuniserer de? (HTTPS, GROQ-spørringer, props)
+      ✔ Hvor bor dataen? (State, Sanity-database, URL-parametre)
+      ✔ Hvordan flyter data? (Bruker → React → Sanity → React → DOM)
+
+    Ordet "arkitektur" kan sammenlignes med en husplan: du trenger ikke å se hele
+    huset samtidig, men du må vite hvor dørene og gangene er for å komme fra rom
+    til rom. I kode kaller vi "gangene" for dataflyt og "dørene" for API-kall
+    eller props.
+
+
+1.2  SYSTEMARKITEKTUREN I ACTM WEBSHOP — OVERSIKT
+═══════════════════════════════════════════════════
+
+    Prosjektet består av TRE hoveddeler:
+
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                                                                             │
+    │   1. REACT FRONTEND (react/ — kjører på localhost:5173)                    │
+    │      ├── main.jsx (inngangspunkt, <BrowserRouter>)                         │
+    │      ├── App.jsx (routing, useState for loggedInUser)                      │
+    │      ├── Layout.jsx (header, navigasjon, <Outlet />)                       │
+    │      ├── Side-komponenter: Frontpage, Order, Customers, CustomerDetail,    │
+    │      │   SearchResults, Show404                                            │
+    │      └── Felles-komponenter: MainMenu, Search                              │
+    │                                                                             │
+    │   2. SANITY CMS (Skybasert — sanity.io)                                    │
+    │      ├── Sanity Studio (uin-eksamensforberedelse/ — :3333)                 │
+    │      │   sanity.config.js + schemaTypes/                                   │
+    │      └── Sanity Database (prosjekt-ID: zxpwxip2, datasett: production)     │
+    │          6 dokumenttyper: admin, category, product, customer, order,       │
+    │          orderproduct (embedded)                                           │
+    │                                                                             │
+    │   3. SANITY KLIENT (react/src/helpers/sanityClient.js)                     │
+    │      Broen mellom React og Sanity. Importeres i alle komponenter           │
+    │      som trenger data. Bruker @sanity/client for å sende GROQ-spørringer.  │
+    │                                                                             │
+    └─────────────────────────────────────────────────────────────────────────────┘
+
+    Sammenhengen:
+      React-frontenden (del 1)  ──HTTPS/GROQ──>  Sanity (del 2)
+           via sanityClient (del 3)
+
+
+1.3  HVORFOR ER ARKITEKTUR VIKTIG?
+═══════════════════════════════════
+
+    ✔ Oversikt — du forstår hvor feil kan oppstå (f.eks. CORS-feil mellom React
+      og Sanity)
+    ✔ Skalerbarhet — kan du legge til en ny side uten å røre eksisterende kode?
+    ✔ Sikkerhet — hvor ligger tokenet? Hvem har tilgang til hva?
+    ✔ Vedlikehold — når en ny utvikler leser koden, skjønner de strukturen
+
+
+1.4  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hvilke tre hoveddeler består systemet av?"
+      → React frontend (UI), Sanity CMS (database/backend), sanityClient (bro)
+
+    ✏ "Hva er forskjellen på Sanity og en tradisjonell SQL-database?"
+      → Sanity er et "headless CMS" — det gir kun et API, ingen fast
+        database-skjema. Du definerer skjemaet i schemaTypes/. SQL har
+        faste tabeller og kolonner; Sanity har frie dokumenter med
+        en type-attributt.
+
+    ✏ "Hvorfor kalles Sanity et 'headless' CMS?"
+      → Fordi det ikke har noe fast frontend-grensesnitt. Du bygger din
+        egen frontend (React) som kommuniserer via API. Et tradisjonelt
+        CMS som WordPress har både backend og frontend i samme pakke.
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  2.  DATAFLYT — HVORDAN BEVEGER DATA SEG I SYSTEMET?                                │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+2.1  GRUNNLEGGENDE DATAFLYT: FIRE TRINN
+════════════════════════════════════════
+
+    ALL datakommunikasjon i dette prosjektet følger samme mønster:
+
+    TRINN 1 — KOMPONENT MONTERES (mount)
+    ═══════════════════════════════════════
+      Brukeren navigerer til en side. React mounter (lager) komponenten.
+      useState oppretter initial-state (null, [], eller false).
+
+      Eksempel: Bruker går til /:
+        App.jsx:     useState(null)          → loggedInUser = null
+        Frontpage:   useState([])            → orders = []
+
+    TRINN 2 — useEffect TRIGGES
+    ═══════════════════════════════════════
+      useEffect kjører ETTER at komponenten er rendret. Det er her vi
+      henter data fra Sanity.
+
+      Eksempel:
+        useEffect(() => {
+            const fetchOrders = async () => {
+                const data = await sanityClient.fetch(query)
+                setOrders(data)
+            }
+            fetchOrders()
+        }, [])
+
+    TRINN 3 — DATA HENTES OVER NETTVERK (HTTPS)
+    ═════════════════════════════════════════════
+      sanityClient.fetch() sender en GET-forespørsel til Sanity.io.
+      Sanity mottar GROQ-spørringen, slår opp i databasen, og returnerer
+      JSON.
+
+      Eksempel på GROQ:
+        *[_type == "order" && orderid == "abc123"][0]{ orderid, status }
+
+      Se for deg GROQ som SQL for Sanity:
+        SQL:  SELECT orderid, status FROM orders WHERE orderid = 'abc123'
+        GROQ: *[_type == "order" && orderid == "abc123"][0]{ orderid, status }
+
+    TRINN 4 — STATE OPPDATERES → RE-RENDER
+    ═════════════════════════════════════════
+      setOrders(data) kalles, React re-renderer komponenten, og
+      brukeren ser dataene.
+
+    Hele syklusen:
+      URL-endring → komponent mountes → useState lager state
+      → useEffect kaller sanityClient.fetch()
+      → HTTPS til Sanity → JSON tilbake
+      → setState() → re-render → brukeren ser data
+
+
+2.2  DATAFLYT MED PROPS
+════════════════════════
+
+    Props (properties) er data som sendes FRA forelder TIL barn.
+    Data flyter KUN nedover i komponent-treet — aldri oppover.
+
+    Dette kalles "enveis dataflyt" (one-way data flow):
+
+        App.jsx (eier loggedInUser)
+          │
+          │  <Layout loggedInUser={loggedInUser} />
+          │
+          ▼
+        Layout.jsx (mottar loggedInUser som prop)
+          │
+          │  <Frontpage loggedInUser={loggedInUser} />
+          │
+          ▼
+        Frontpage.jsx (bruker loggedInUser.role)
+
+    Fordelen med enveis dataflyt:
+      ✔ Forutsigbar — du vet ALLTID hvor data kommer fra (forelderen)
+      ✔ Enkel å feilsøke — følg props oppover til du finner kilden
+      ✔ Isolert — barnet kan ikke ved et uhell endre forelderens data
+
+    Props KAN ikke endres av barnet. Hvis Frontpage prøver å kjøre
+    loggedInUser.role = "super", skjer ingenting (og i strict mode får
+    du en feilmelding). For å endre data fra et barn må du sende en
+    setter-funksjon som prop, f.eks.:
+
+      <OrderForm onSave={setOrders} />  // ← barnet kaller onSave()
+
+
+2.3  SAMMENHENGEN: useState + useEffect + Props = DATAFLYT
+════════════════════════════════════════════════════════════
+
+    Dette er de TRE bærebjelkene i Reacts dataflyt:
+
+      useState         →   useEffect          →   Props
+      ────────────         ────────────             ─────
+      OPPBEVARING          HENTING                DISTRIBUSJON
+      "Hvor bor data?"     "Når henter vi?"      "Hvem får vite?"
+
+    I praksis (eksempel med loggedInUser):
+
+      STEG 1: useState (minne)
+      ─────────────────────────
+        App.jsx oppretter en "boks" for loggedInUser:
+          const [loggedInUser, setLoggedInUser] = useState(null)
+
+        Boksen er tom (null) helt til data kommer fra Sanity.
+
+      STEG 2: useEffect (henting)
+      ─────────────────────────────
+        Når App.jsx monteres, kjører useEffect([]):
+          useEffect(() => {
+              const user = await sanityClient.fetch(query)
+              setLoggedInUser(user)  // ← fyller boksen
+          }, [])
+
+        Når Sanity svarer, kalles setLoggedInUser(user).
+        Dette trigger en RE-RENDER av App.jsx.
+
+      STEG 3: Props (distribusjon)
+      ──────────────────────────────
+        Under re-render sender App.jsx loggedInUser som prop til Layout:
+          <Layout loggedInUser={loggedInUser} />
+
+        Layout mottar som prop { loggedInUser } og viser:
+          <p>Welcome {loggedInUser.firstname}</p>
+
+        Layout sender videre til Frontpage:
+          <Frontpage loggedInUser={loggedInUser} />
+
+        Frontpage bruker loggedInUser.role for rollebasert visning.
+
+    Dataflyten er altså:
+      1. useState oppretter MINNE
+      2. useEffect HENTER data inn i minnet
+      3. Props FLYTTER data til komponenter som trenger det
+
+
+2.4  SCENARIO: HVA SKJER NÅR BRUKEREN ÅPNER STARTSIDEN?
+══════════════════════════════════════════════════════════
+
+    TID    HENDELSE                                DATA              STATE
+    ═════ ════════════════════════════════════════ ═════════════════ ════════════════
+    t0    Bruker skriver localhost:5173 i nettleser  —                 —
+    t1    main.jsx: <BrowserRouter> rendrer App                         —
+    t2    App.jsx: useState(null)                  —                loggedInUser=null
+    t3    Layout rendrer (header+nav+tomt main)    —                loggedInUser=null
+    t4    Frontpage rendrer: "Loading orders..."   —                orders=[]
+    t5    App useEffect: fetch admin fra Sanity    → HTTPS til Sanity   —
+    t6    Frontpage useEffect: fetch ordrer         → HTTPS til Sanity  —
+    t7    Admin-data returnert til App              admin JSON ←        —
+    t8    setLoggedInUser(admin)                    admin JSON     loggedInUser=admin
+    t9    RE-RENDER: Layout viser "Welcome Alex"    —                loggedInUser=admin
+    t10   RE-RENDER: Frontpage får props            role: "super"  isSuperAdmin=true
+    t11   Ordre-data returnert til Frontpage        25 ordre ←        —
+    t12   setOrders(25 ordre)                       25 ordre       orders=[25 items]
+    t13   RE-RENDER: Frontpage viser tabell+stats   —                orders=[25 items]
+
+    Hvorfor tre re-renders?
+      React re-renderer hver gang en setState kalles. Hos oss skjer
+      setLoggedInUser (t8) og setOrders (t12) uavhengig av hverandre,
+      så vi får to separate re-renders (t9 og t13).
+
+
+2.5  SAMMENHENG MED PROPS, PROP DRILLING, useEffect OG useState
+═════════════════════════════════════════════════════════════════
+
+    Systemarkitekturen BESTÅR AV disse konseptene. Uten dem ville
+    systemet ikke fungert:
+
+    ├── useState — "Hvor bor dataen i dette øyeblikket?"
+    │   Uten useState måtte vi laste siden på nytt for hver endring.
+    │   Se for deg en kalkulator uten minne — hvert tastetrykk krever
+    │   en full refresh.
+    │
+    ├── useEffect — "Når og hvordan henter/sender vi data?"
+    │   Uten useEffect ville datahenting skje midt i renderingen,
+    │   noe som fører til uendelige løkker (render → fetch → setState
+    │   → re-render → fetch → ...).
+    │
+    ├── Props — "Hvem trenger å vite om dataen?"
+    │   Uten props måtte hver komponent hente dataen selv, noe som
+    │   fører til dupliserte API-kall og inkonsistent data.
+    │
+    └── Prop Drilling — "Hva skjer når data må gjennom flere ledd?"
+        Uheldig, men uunngåelig i små systemer. Løsningen er
+        Context API (se seksjon 3.6 i useState_useEffect_Props.txt).
+
+    I denne webshopen har vi ett tilfelle av prop drilling (loggedInUser
+    sendes App → Layout → Frontpage), men resten av komponentene
+    henter data selv via import av sanityClient.
+
+
+2.6  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hvorfor kan ikke data flyte oppover i React?"
+      → React er designet med enveis dataflyt for forutsigbarhet.
+        Hvis alle komponenter kunne endre alle andres data, ville
+        feilsøking blitt umulig. For å sende data oppover bruker
+        man callback-funksjoner (forelderen sender en setter som prop).
+
+    ✏ "Hva er forskjellen på state og props i systemarkitekturen?"
+      → State = intern data som komponenten selv eier og kan endre
+      → Props = ekstern data som komponenten mottar og KUN kan lese
+
+    ✏ "Hvordan henger useEffect sammen med systemarkitekturen?"
+      → useEffect er "porten" mellom React og omverdenen (Sanity API).
+        Uten useEffect kunne React-komponenter ikke kommunisert med
+        eksterne systemer uten å krasje i uendelige løkker.
+
+    ✏ "Hvorfor har vi 6 useEffect-kall og ikke ett?"
+      → Hver side i en SPA (Single Page Application) laster kun
+        dataene DEN trenger. Å laste alle data på én gang ville vært
+        tregt og unødvendig. Dette kalles "lazy loading" eller
+        "on-demand fetching".
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  3.  Systemarkitektur dypere: Hva ligger MELLOM komponentene?                        │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+3.1  REACT ROUTER — TRAFIKKSTYRING I FRONTENDEN
+════════════════════════════════════════════════
+
+    React Router v7 (react-router-dom) fungerer som et "veikart" for
+    applikasjonen. Når brukeren navigerer til en URL, bestemmer Router
+    hvilken komponent som skal rendres.
+
+    I App.jsx (linje 28-39):
+      <Routes>
+        <Route element={<Layout loggedInUser={loggedInUser} />}>
+          <Route path="/" element={<Frontpage />} />
+          <Route path="/order/:orderId" element={<Order />} />
+          <Route path="/crm" element={<Customers />} />
+          <Route path="/customer/:id" element={<CustomerDetail />} />
+          <Route path="/search" element={<SearchResults />} />
+          <Route path="*" element={<Show404 />} />
+        </Route>
+      </Routes>
+
+    Nøkkel: <Route element={<Layout ...>}> er en "wrapper" som
+    omslutter alle barneruter via <Outlet /> i Layout.jsx.
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │  URL               →  Komponent        →  Hva den gjør           │
+    ├──────────────────────────────────────────────────────────────────┤
+    │  /                    Frontpage.jsx       Månedens ordrer+stat   │
+    │  /order/abc123        Order.jsx           Detaljer for ordre     │
+    │  /crm                 Customers.jsx       Liste over kunder      │
+    │  /customer/abc        CustomerDetail.jsx  Kunde + deres ordrer   │
+    │  /search?q=John       SearchResults.jsx   Søkeresultater         │
+    │  *                    Show404.jsx         404-side               │
+    └──────────────────────────────────────────────────────────────────┘
+
+    useParams: Henter :orderId og :id fra URL-en
+      const { orderId } = useParams()      // → "abc123" fra /order/abc123
+      const { id } = useSearchParams()     // → "John" fra /search?q=John
+
+
+3.2  SANITY CLIENTS ROLLE I ARKITEKTUREN
+══════════════════════════════════════════
+
+    sanityClient.js er den eneste filen som har direkte kontakt med
+    Sanity-serveren. Alle 6 komponenter som henter data importerer
+    denne klienten.
+
+    Hvorfor importeres sanityClient i hver fil i stedet for å sendes
+    som prop?
+      → Fordi den er en "singleton" — det finnes kun én instans av
+        Sanity-klienten i hele appen. Da er direkte import enklere
+        enn å prop-dille den gjennom hele komponenttreet.
+      → Dette er et arkitektonisk valg: "import what you need"
+        fremfor "pass everything from the top".
+
+    Hva gjør sanityClient egentlig?
+
+    Uten å gå inn på implementasjonsdetaljer:
+      1. Den bygger URL-en: https://zxpwxip2.api.sanity.io/v2026-04-22/...
+      2. Den legger til Authorization-header (hvis token)
+      3. Den sender HTTPS-forespørselen
+      4. Den returnerer JSON-svaret som et JavaScript-objekt
+
+    Viktig: Alt dette skjer ASYNKROST. Derfor må vi bruke async/await
+    inne i useEffect.
+
+
+3.3  KOMPONENTHIERARKIET — TREET AV KOMPONENTER
+═════════════════════════════════════════════════
+
+    main.jsx (laster React-appen)
+      └── <BrowserRouter>
+            └── App.jsx  (eier: loggedInUser state)
+                  └── <Routes>
+                        └── Layout.jsx
+                              ├── <header>
+                              │     ├── <h1>ACTM Webshop</h1>
+                              │     ├── Search.jsx  (eier: query state)
+                              │     └── <p>Welcome {loggedInUser.name}</p>
+                              ├── MainMenu.jsx
+                              ├── <main><Outlet /></main>
+                              │     ├── Frontpage.jsx  (får props, eier: orders)
+                              │     ├── Order.jsx  (eier: order, totalPrice, saving)
+                              │     ├── Customers.jsx  (eier: customers)
+                              │     ├── CustomerDetail.jsx  (eier: customer, orders)
+                              │     ├── SearchResults.jsx  (eier: results, loading)
+                              │     └── Show404.jsx
+                              └── <footer>
+
+    Hver komponent er en "boks" som:
+      ✔ Har sitt EGET useState — isolert fra andre komponenter
+      ✔ Henter SINE EGNE data — via import av sanityClient
+      ✔ KUN unntaket er loggedInUser som sendes som prop
+
+
+3.4  SAMMENHENG: SYSTEMARKITEKTUR ↔ React-hooks ↔ Props
+═════════════════════════════════════════════════════════
+
+    Arkitekturen kan beskrives som et "vannrørsystem":
+
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │                                                                          │
+    │  📍 Kilden (Sanity)                                                     │
+    │     ↓                                                                   │
+    │  📍 Pumpene (useEffect + sanityClient.fetch)                            │
+    │     ↓                                                                   │
+    │  📍 Tankene (useState — loggedInUser, orders, customers, osv.)          │
+    │     ↓                                                                   │
+    │  📍 Rørene (props — sender data fra en tank til en komponent)          │
+    │     ↓                                                                   │
+    │  📍 Kranene (JSX — brukeren ser dataen)                                │
+    │                                                                          │
+    └──────────────────────────────────────────────────────────────────────────┘
+
+    Hvert ledd i kjeden er avhengig av det forrige:
+      • Uten Sanity → ingen data
+      • Uten useEffect → data hentes aldri
+      • Uten useState → data lagres ikke mellom renderinger
+      • Uten props → andre komponenter får ikke vite om dataen
+      • Uten JSX → brukeren ser ingenting
+
+
+3.5  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hvorfor har vi Layout.jsx som wrapper for alle sidene?"
+      → For å unngå duplisering. Header, navigasjon og footer er lik
+        på alle sider. Med <Outlet /> rendres kun innholdet som
+        endrer seg. Dette kalles "DRY-prinsippet" (Don't Repeat Yourself).
+
+    ✏ "Hva skjer hvis <Outlet /> fjernes fra Layout.jsx?"
+      → Ingenting vises fra barnerutene. Alle sider blir blanke bortsett
+        fra header og footer. <Outlet /> er "hullet" der React Router
+        setter inn barnekomponenten.
+
+    ✏ "Hvorfor har Frontpage.jsx en prop (loggedInUser) mens Order.jsx
+        ikke har det?"
+      → Frontpage trenger rollen (role) for å vise/skjule revenue.
+        Order.jsx har ingen rollebasert logikk — den trenger ikke
+        vite hvem som er logget inn.
+
+    ✏ "Kan du forklare systemarkitektur med en analogi?"
+      → Ja: Systemet er som et bibliotek.
+        Sanity = boklageret (alle bøkene lagres her)
+        sanityClient = bibliotekaren (henter bøker)
+        useEffect = bestillingsskjemaet (sier hva vi trenger)
+        useState = lesesalsbordet (boken ligger her så lenge vi leser)
+        props = å dele boken med en medstudent
+        React Router = kartet over biblioteket (finner riktig avdeling)
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  4.  KLIENT-SERVER-KOMMUNIKASJON (HTTPS/GROQ)                                        │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+4.1  HVA SKJER I NETTVERKET NÅR EN SIDE LASTES?
+══════════════════════════════════════════════════
+
+    Eksempel: Bruker går til /crm for å se kunder.
+
+    STEG FOR STEG I NETTVERKET:
+
+    Nettleser           React (localhost:5173)          Sanity (sanity.io)
+    ──────────          ──────────────────────          ────────────────────
+       │                        │                              │
+       │  GET /crm              │                              │
+       ├───────────────────────►│                              │
+       │                        │                              │
+       │  HTML + CSS + JS       │                              │
+       │◄───────────────────────┤                              │
+       │                        │                              │
+       │  React mounter         │                              │
+       │  Customers.jsx         │                              │
+       │  useState([])          │                              │
+       │                        │                              │
+       │                useEffect kjøres                       │
+       │                        │                              │
+       │  OPTIONS               │  (CORS preflight)            │
+       │◄───────────────────────┼──────────────────────────────►│
+       │                        │  ← Access-Control-Allow-*    │
+       │                        │                              │
+       │  GET                   │                              │
+       │  /v1/data/query/       │                              │
+       │  production?query=     │  ── HTTPS over internett ──► │
+       │  *[_type=="customer"]  │                              │
+       │                        │      Sanity slår opp         │
+       │                        │      i databasen             │
+       │                        │                              │
+       │  JSON:                 │◄─── 11 kunder ───────────────┤
+       │  [{firstname:"Ola",    │                              │
+       │    lastname:"Nordmann",│                              │
+       │    city:"Oslo"}, ...]  │                              │
+       │                        │                              │
+       │  setCustomers(11       │                              │
+       │    kunder) → re-render │                              │
+       │                        │                              │
+       │  React oppdaterer DOM  │                              │
+       │  Lister alle kunder    │                              │
+       │◄───────────────────────┤                              │
+
+
+4.2  HVORFOR TRENGER VI BÅDE OPTIONS (PREFLIGHT) OG GET?
+═══════════════════════════════════════════════════════════
+
+    CORS står for Cross-Origin Resource Sharing og er nettleserens
+    sikkerhetsmekanisme:
+
+      1. SPØRSMÅL (OPTIONS): Nettleseren spør Sanity:
+         "Hei, får http://localhost:5173 lov til å lese data fra deg?"
+
+      2. SVAR (Access-Control-Allow-Origin): Sanity svarer:
+         "Ja, du har lov" ← med en header som sier at localhost:5173
+                             er en tillatt opprinnelse.
+
+      3. HANDLING (GET): Først NÅ sender nettleseren den egentlige
+         forespørselen med GROQ-spørringen.
+
+    Uten steg 1-2 ville et ondsinnet script på en annen nettside
+    kunne lest dataene dine (CSRF-angrep).
+
+    I prosjektet: Når dataset er PRIVAT og TOKEN er i bruk, sendes
+    alltid Authorization-header, og CORS preflight KREVES. Derfor
+    må CORS-origins være konfigurert. Men som vi så tidligere, når
+    token er hardkodet i klientkode, blir datasettet i praksis
+    offentlig — derfor har CORS-begrensninger liten effekt.
+
+
+4.3  SAMMENHENGEN: CORS ↔ TOKEN ↔ SYSTEMARKITEKTUR
+═════════════════════════════════════════════════════
+
+    Dette er en av de viktigste sammenhengene i systemarkitekturen:
+
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │                                                                          │
+    │  Systemarkitektur:                                                      │
+    │    React (localhost:5173) ──HTTPS──► Sanity (sanity.io)                 │
+    │        ↑                          ↑                                     │
+    │        │                          │                                     │
+    │    Ulik opprinnelse          Ulik server                                 │
+    │    (origin: 5173)            (origin: sanity.io)                        │
+    │                                                                          │
+    │  Problem: Browsere blokkerer forespørsler mellom ulike origins           │
+    │           (Same-Origin Policy)                                           │
+    │                                                                          │
+    │  Løsning 1: CORS-origins i Sanity dashboard                            │
+    │    → Forteller Sanity å tillate localhost:5173                           │
+    │    → Gjelder for: private datasett og skriveoperasjoner                  │
+    │                                                                          │
+    │  Løsning 2: Offentlig datasett                                          │
+    │    → Sanity returnerer Access-Control-Allow-Origin: *                  │
+    │    → Gjelder for: lesing (GET) på public datasett                       │
+    │                                                                          │
+    │  Løsning 3: Token i request                                            │
+    │    → Når token er tilstede, autentiserer det forespørselen               │
+    │    → Sanity returnerer CORS-headers uavhengig av dashboard-oppsett       │
+    │    → Derfor har sletting av CORS-origins ingen effekt                   │
+    │                                                                          │
+    └──────────────────────────────────────────────────────────────────────────┘
+
+    Konsekvens: Tokenet i sanityClient.js GJØR at data alltid kan leses,
+    uansett CORS-oppsett. For å blokkere tilgang må tokenet fjernes fra
+    klientkoden og datasettet settes til privat. Da vil lesing kreve
+    enten CORS-origin eller server-side proxy.
+
+
+4.4  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hva er forskjellen på en GET- og en PATCH-forespørsel i dette
+        systemet?"
+      → GET: Henter data (leser). Brukes i ALLE 6 useEffect.
+      → PATCH: Endrer data (skriver). Brukes KUN i Order.jsx for
+        å oppdatere ordrestatus.
+
+    ✏ "Hvorfor får vi ikke CORS-feil når vi bruker sanityClient med
+        token, selv om CORS-origins er slettet?"
+      → Fordi tokenet autentiserer forespørselen. Sanitys API
+        returnerer Access-Control-Allow-Origin: * for alle
+        autentiserte forespørsler. Tokenet er "nøkkelen" som gir
+        tilgang uansett hvor du ringer fra.
+
+    ✏ "Hva er Same-Origin Policy og hvorfor er den viktig?"
+      → Det er nettleserens sikkerhetsregel som sier at et script
+        fra én opprinnelse (f.eks. localhost:5173) ikke kan lese
+        svar fra en annen opprinnelse (f.eks. sanity.io) uten
+        eksplisitt tillatelse. Dette hindrer ondsinnede nettsteder
+        i å stjele data.
+
+    ✏ "Hva er forskjellen på CORS og HTTPS?"
+      → CORS = Hvem har lov til å lese dataene (origin-sjekk)
+      → HTTPS = At dataene er kryptert under transport (sikkerhet)
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  5.  SANITY SOM BAKEND — DOKUMENTMODELL OG RELASJONER                               │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+5.1  DOKUMENTMODELLEN — SCHEMA TYPES
+══════════════════════════════════════
+
+    I motsetning til en SQL-database med tabeller og rader, bruker
+    Sanity et dokumentbasert system. Hvert dokument har en _type
+    som sier hva slags dokument det er.
+
+    De 6 typene i prosjektet:
+
+    admin:           { firstname, lastname, email, role }
+    category:        { categoryname, slug }
+    product:         { productname, slug, productid, price, stock,
+                       description, image, categories[] (ref → category) }
+    customer:        { firstname, lastname, slug, streetaddress,
+                       zipcode, city, email }
+    order:           { orderid, status, customer (ref → customer),
+                       products[] (embedded → orderproduct) }
+    orderproduct:    { product (ref → product), quantity }
+      (embedded — finnes ikke som eget dokument, kun inni order)
+
+
+5.2  RELASJONER I SANITY
+══════════════════════════
+
+    Sanity har to måter å relatere data på:
+
+    1. REFERENCE (ref)
+    ─────────────────────────────────────────────────────────────────────
+      En peker til et annet dokument. Som en fremmednøkkel i SQL, men
+      uten JOIN — du må "dereference" manuelt i GROQ.
+
+      Eksempel: order → customer
+        order:    { customer: { _ref: "abc123", _type: "reference" } }
+        customer: { _id: "abc123", firstname: "Ola", ... }
+
+      I GROQ:
+        *[_type == "order"]{ customer->{ firstname, lastname } }
+                              ↑↑
+                      "->" betyr "følg referansen"
+
+    2. EMBEDDED OBJECT (inni dokumentet)
+    ─────────────────────────────────────────────────────────────────────
+      Dat som ligger DIREKTE inne i et annet dokument. Finnes ikke
+      som selvstendig dokument.
+
+      Eksempel: orderproduct inni order
+        order: {
+          products: [
+            { product: { _ref: "xyz" }, quantity: 2 },
+            { product: { _ref: "uvw" }, quantity: 1 }
+          ]
+        }
+
+      I GROQ for å hente produktdetaljer:
+        *[_type == "order"]{
+          products[]{ quantity, product->{ productname, price } }
+        }
+
+
+5.3  SAMMENHENGEN: DOKUMENTMODELL ↔ SYSTEMARKITEKTUR
+══════════════════════════════════════════════════════
+
+    Hvordan dokumentmodellen påvirker arkitekturen:
+
+    ┌──────────────────────────────────────────────────────────────────┐
+    │                                                                  │
+    │  SQL-tankegang:     Sanity-tankegang:                            │
+    │  ──────────────     ─────────────────                            │
+    │  Tabeller           Dokument-typer                               │
+    │  Rader              Dokumenter                                    │
+    │  Kolonner           Felt                                         │
+    │  JOIN               Reference + dereference (->)                │
+    │  Normalisering      Duplisering er OK                            │
+    │  Faste skjema       Fleksibelt (ulike felt per dokument)         │
+    │                                                                  │
+    │  Konsekvens i arkitekturen:                                      │
+    │    • Hver GROQ-spørring må følge referanser manuelt (product->) │
+    │    • Én joined query kan erstatte flere separate spørringer      │
+    │    • Embedded objekter (orderproduct) sparer ekstra dokumenter   │
+    │    • Men: referencede data kan være utdatert (ingen cascade)    │
+    │                                                                  │
+    └──────────────────────────────────────────────────────────────────┘
+
+
+5.4  GROQ — SANITYS SPØRREKRAFT
+═════════════════════════════════
+
+    GROQ (Graph-Relational Object Queries) er Sanity sitt spørrespråk.
+    Det er verken SQL eller GraphQL, men noe midt imellom.
+
+    Viktige features brukt i prosjektet:
+
+    ✦ Filtrering:   *[_type == "order" && status == "open"]
+    ✦ Sortering:    | order(lastname asc, firstname asc)
+    ✦ Projeksjon:   { firstname, lastname, email }
+    ✦ Parametre:    $orderId, $term (sikrere enn string interpolation)
+    ✦ Dereference:  product->{ productname, price }
+    ✦ Wildcard:     firstname match $term (hvor term = "*John*")
+    ✦ Joined query: { "customer": *[...], "orders": *[...] }
+    ✦ Bilde-URL:    "imageUrl": image.asset->url
+
+    Hver GROQ-spørring i prosjektet er bundet til ÉN komponent.
+    Ingen komponenter deler spørringer.
+
+
+5.5  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hvorfor bruker vi embedded orderproduct i stedet for et eget
+        dokument for hver produktlinje?"
+      → En ordre har et begrenset antall produkter. Embedded-løsningen
+        er raskere (én spørring) og enklere (slipper referanser til
+        ordreprodukter). Ulempen: man kan ikke søke på tvers av
+        alle ordreprodukter uten å gå gjennom hver ordre.
+
+    ✏ "Hva er fordelen med references fremfor embedded data?"
+      → Data deles på tvers. Hvis et produkt endrer pris, trenger
+        man kun å oppdatere produkt-dokumentet. Med embedded data
+        måtte man oppdatere alle ordrer som inneholder produktet.
+
+    ✏ "Hvorfor bruker vi → i GROQ i stedet for JOIN i SQL?"
+      → Sanity er ikke en relasjonsdatabase. Reference er en peker,
+        ikke en fremmednøkkel. → forteller Sanity å følge pekeren
+        og hente data fra det refererte dokumentet.
+
+    ✏ "Hvordan ville systemarkitekturen sett ut med en SQL-database
+        i stedet for Sanity?"
+      → Du ville trengt en backend-server (Node.js/Express) med
+        REST API eller GraphQL. React ville kalt ditt API, som
+        igjen ville kalt databasen. Flere ledd → mer kompleksitet.
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  6.  SIKKERHET I SYSTEMARKITEKTUREN                                                  │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+6.1  TOKEN I KLIENTKODE — ET SIKKERHETSPROBLEM
+════════════════════════════════════════════════
+
+    Det mest kritiske arkitektoniske problemet i denne webshopen:
+
+      Tokenet er hardkodet i react/src/helpers/sanityClient.js, linje 8.
+
+    Dette betyr:
+      ✔ Alle som åpner nettleserens utviklerverktøy → finner tokenet
+      ✔ Alle som laster ned JS-bundle → finner tokenet
+      ✔ Tokenet har skrivetilgang → hvem som helst kan slette data
+
+    Sanity advarer selv om dette:
+      "Never add an access token to JavaScript that is bundled for
+       client-side use and served publicly."
+
+
+6.2  HVORDAN BURDE DET VÆRT?
+══════════════════════════════
+
+    Riktig arkitektur for sikker håndtering:
+
+    ┌─── NÅVÆRENDE (usikkert) ──────────────────────────────────────┐
+    │                                                                  │
+    │  React (5173) ──── token i koden ────► Sanity                   │
+    │      ↑                               ↑                          │
+    │  Alle kan se token                   Token gir full tilgang      │
+    │                                                                  │
+    └──────────────────────────────────────────────────────────────────┘
+
+    ┌─── ANBEFALT (sikkert) ────────────────────────────────────────┐
+    │                                                                  │
+    │  React (5173) ──── proxy-server ────► Sanity                    │
+    │      ↑               ↑                                          │
+    │  Ingen token       Token kun her                                 │
+    │                                                                  │
+    │  React spør proxy: "Hent kunder"                                │
+    │  Proxy spør Sanity: "Hent kunder" (med token)                   │
+    │  Proxy returnerer til React (uten at React vet om tokenet)      │
+    │                                                                  │
+    │  Fordel: Tokenet er ALDRI i nettleseren                         │
+    │  Ulempe: Trenger en ekstra server (Node.js, Sanity Function)    │
+    │                                                                  │
+    └──────────────────────────────────────────────────────────────────┘
+
+
+6.3  CORS I SYSTEMARKITEKTUREN
+═══════════════════════════════
+
+    CORS er et SIKKERHETSLAG, ikke en lås. Det beskytter mot:
+
+      ✔ CSRF-angrep (Cross-Site Request Forgery)
+        → Et ondsinnet script på en annen nettside kan ikke
+          lese data fra Sanity via brukerens sesjon
+
+      ✘ Det beskytter IKKE mot:
+        → Noen som har tak i token (tokenet er "nøkkelen")
+        → Noen som ringer Sanity direkte via curl/Postman
+
+    CORS = "Portvakt som sjekker legitimasjon"
+    Token = "Hovednøkkel som går forbi portvakten"
+
+    Derfor: Har du token i klientkode, kan du like godt ha
+    offentlig datasett — sikkerheten er den samme.
+
+
+6.4  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Hvorfor er det farlig å ha token i sanityClient.js?"
+      → Fordi all kode som sendes til nettleseren kan leses av
+        hvem som helst. Trykk F12 → Sources → sanityClient.js
+        → tokenet er synlig i klartekst.
+
+    ✏ "Hvordan ville du løst sikkerhetsproblemet?"
+      → Fjerne token fra klienten, sette opp en serverless
+        function (f.eks. Sanity Function eller Vercel Edge
+        Function) som håndterer skriveoperasjoner, og kun
+        kalle denne fra React.
+
+    ✏ "Hva er forskjellen på å sette datasettet til privat vs.
+        å fjerne tokenet?"
+      → Privat datasett: krever autentisering for lesing.
+        Token i koden: gir autentisering — data er likevel
+        tilgjengelig. Fjerne tokenet: DA har privat datasett
+        effekt, fordi ingen kan autentisere seg.
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  7.  SAMMENHENGEN — ALT HENGER SAMMEN                                              │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+7.1  HVORDAN DE FEM HOVEDKONSEPTENE SPILLER SAMMEN
+══════════════════════════════════════════════════════
+
+    Systemarkitektur er "teppe" som useState, useEffect, Props,
+    Prop Drilling og Sanity kommunikasjon ligger på:
+
+    ┌──────────────────────────────────────────────────────────────────────────────────┐
+    │                                                                                  │
+    │                          SYSTEMARKITEKTUR                                         │
+    │   (Hvordan alt henger sammen — React + Sanity + Nettverk)                        │
+    │                                                                                  │
+    │   ┌──────────────────────────┬──────────────────────────┬───────────────────┐    │
+    │   │                          │                          │                    │    │
+    │   │  useState                │  useEffect                │  Props            │    │
+    │   │  ─────────               │  ─────────               │  ─────            │    │
+    │   │  Lokalt minne            │  Henter data              │  Distribuerer     │    │
+    │   │  i komponenten           │  fra Sanity               │  data til barn    │    │
+    │   │                          │                          │                    │    │
+    │   │  Eier: komponenten       │  Når: mount/update       │  Retning: nedover │    │
+    │   │  Les/skriv: useState     │  Hvor: Sanity API        │  Les-only: ja     │    │
+    │   │                          │                          │                    │    │
+    │   └──────────────────────────┴──────────────────────────┴───────────────────┘    │
+    │                                      │                                            │
+    │                                      ▼                                            │
+    │                        ┌─────────────────────────┐                               │
+    │                        │                         │                               │
+    │                        │  Prop Drilling          │                               │
+    │                        │  ───────────────        │                               │
+    │                        │  Når state sendes       │                               │
+    │                        │  gjennom flere ledd      │                               │
+    │                        │                         │                               │
+    │                        └─────────────────────────┘                               │
+    │                                      │                                            │
+    │                                      ▼                                            │
+    │                        ┌─────────────────────────┐                               │
+    │                        │                         │                               │
+    │                        │  Sanity Kommunikasjon   │                               │
+    │                        │  ─────────────────────  │                               │
+    │                        │  HTTPS + GROQ + JSON    │                               │
+    │                        │  CORS + Token           │                               │
+    │                        │                         │                               │
+    │                        └─────────────────────────┘                               │
+    │                                                                                  │
+    └──────────────────────────────────────────────────────────────────────────────────┘
+
+
+7.2  EKSEMPEL PÅ ALT SAMTIDIG: ORDER.JSX
+══════════════════════════════════════════
+
+    Order.jsx er den beste komponenten for å se ALLE konseptene i bruk:
+
+    ├── Systemarkitektur:
+    │   • React (frontend) ←→ Sanity (backend) over HTTPS
+    │   • useParams fra React Router gir orderId fra URL-en
+    │
+    ├── useState (3 stk):
+    │   • order = null     — detaljene for ordren (etterspurt)
+    │   • totalPrice = 0   — utregnet totalsum
+    │   • saving = false   — om vi lagrer en endring
+    │
+    ├── useEffect:
+    │   • Henter ordre fra Sanity ved mount og når orderId endres
+    │   • Dependency: [orderId] — re-fetch ved navigasjon
+    │
+    ├── Props:
+    │   • Ingen props mottatt — henter alt selv
+    │
+    ├── Prop Drilling:
+    │   • Ingen prop drilling — komponenten er selvstendig
+    │
+    ├── Sanity kommunikasjon:
+    │   • GET: GROQ-spørring for å hente ordredetaljer
+    │   • PATCH: sanityClient.patch() for å oppdatere status
+    │
+    └── Sikkerhet:
+      • Token fra sanityClient brukes for BÅDE lesing og skriving
+      • saving-state hindrer dobbel innsending (disabled select)
+
+
+7.3  OPPGAVE — tenk på dette til eksamen
+═══════════════════════════════════════════
+
+    ✏ "Forklar hele dataflyten når en bruker endrer status på en
+        ordre fra 'open' til 'packed'."
+      → 1. Bruker velger "packed" i <select>
+         2. handleStatusChange kalles
+         3. setSaving(true) — knapp låses
+         4. sanityClient.patch(id).set({status}).commit() — HTTPS
+         5. Sanity lagrer endringen
+         6. setOrder({...order, status}) — lokal oppdatering
+         7. setSaving(false) — knapp låses opp
+         8. React re-renderer med ny status
+
+    ✏ "Hvordan ville du forklart systemarkitektur til en ikke-teknisk
+        person?"
+      → "Se for deg et bestillingssystem på en restaurant.
+        React er servitøren som tar imot bestillingen (ved bordet).
+        Sanity er kjøkkenet (lagrer og tilbereder data).
+        GROQ er bestillingsseddelen (skrevet på et språk kjøkkenet
+        forstår). useState er servitørens notatblokk (husker hva
+        hvert bord har bestilt). useEffect er servitøren som går
+        til kjøkkenet for å hente maten. Props er når servitøren
+        gir tallerkenen til gjesten. Prop drilling er når maten
+        må sendes via flere servitører før den når riktig bord."
+
+    ✏ "Hva er det viktigste du har lært om systemarkitektur i dette
+        prosjektet?"
+      → At arkitektur handler om å forstå HELE bildet, ikke bare
+        koden foran deg. useState, useEffect, props, prop drilling,
+        CORS, tokens, GROQ — alt henger sammen. Endrer du én ting
+        (f.eks. sletter CORS-origins), påvirker det andre ting
+        (f.eks. om data kan leses). Og viktigst: sikkerhet må
+        bygges inn i arkitekturen fra starten, ikke legges til
+        etterpå.
+
+
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  OPPSUMMERING — NØKKELPUNKTER TIL EKSAMEN                                           │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+
+    🏗 ARKITEKTUREN:
+       React frontend (:5173) + Sanity CMS (.io) + sanityClient (bro)
+       To separate npm-prosjekter: react/ og uin-eksamensforberedelse/
+       Kommunikasjon via HTTPS + GROQ (Sanitys eget spørrespråk)
+
+    📦 DATAFLYTEN:
+       Bruker → React-komponent → useEffect → sanityClient.fetch(GROQ)
+       → Sanity API → JSON → setState() → re-render → DOM oppdateres
+
+    🔄 STATE vs PROPS:
+       State = internt minne (useState) — kan endres
+       Props = ekstern data — kan IKKE endres (read-only)
+       useEffect = broen mellom React og omverdenen
+
+    🔗 PROP DRILLING:
+       loggedInUser sendes App → Layout → Frontpage (kun 2 nivåer)
+       Løsning ved behov: Context API
+
+    🔒 SIKKERHET:
+       Token hardkodet i kode = data er offentlig uansett CORS-oppsett
+       CORS = portvakt for sesjoner, ikke for tokens
+       Anbefalt: proxy-server for skriveoperasjoner
+
+    🗄 SANITY DOKUMENTMODELL:
+       6 typer: admin, category, product, customer, order, orderproduct
+       Relasjoner via reference (_ref → _id) med → i GROQ
+       Embedded object (orderproduct) for data som ikke trenger eget liv
+
+    🛣 ROUTING:
+       React Router v7 med nested routes (Layout + Outlet)
+       useParams for URL-parametre (:orderId, :id)
+       useSearchParams for søk (?q=)
