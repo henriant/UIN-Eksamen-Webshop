@@ -1,0 +1,63 @@
+SYSTEMARKITEKTUR - KORT OPPSUMMERING (muntlig eksamen)
+====================================================
+
+
+MUNTLIG SAMMENDRAG
+------------------
+
+Vi har bygget et admin-panel for en nettbutikk med React som frontend og
+Sanity.io som backend. Siden er en Single Page Application — alt lastes i
+én HTML-side, og React Router styrer hvilke komponenter som vises basert på
+URL-en. Når en sidekomponent mountes, gjør den en spørring (GROQ) mot Sanity
+via HTTPS, og dataene legges i lokal state med useState. Når state oppdateres,
+re-renderer React automatisk. Det er ingen global state — hver komponent har
+sin egen useState, og loggedInUser prop-dilles ned dit den trengs. Databasen
+har fem dokumenttyper (admin, category, product, customer, order) pluss ett
+embedded objekt (orderproduct). Stylingen er ren CSS fordelt på tre filer.
+
+
+FAGLIG OPPSUMMERING
+-------------------
+
+Arkitektur:
+  - React SPA (Vite) -> Sanity.io via HTTPS/GROQ
+  - To separate npm-prosjekter: react/ (frontend :5173) og
+    studio/ (Sanity Studio :3333)
+
+Dataflyt:
+  - Brukerhandling -> komponent mountes -> useEffect ->
+    sanityClient.fetch(GROQ) -> JSON -> setState() ->
+    React re-renderer -> DOM-oppdatering
+  - Skriveoperasjoner: sanityClient.patch().set().commit()
+    (f.eks. endre ordrestatus)
+
+State management:
+  - Kun lokal useState per komponent — ingen Context, Redux
+    eller global state
+  - Props: loggedInUser sendes App -> Layout -> Frontpage
+    (rollebasert visning)
+
+Routing:
+  - React Router v7 med nested routes: Layout har <Outlet />
+    hvor barneruter rendres
+  - useParams for dynamiske segmenter (:orderId, :id)
+  - useSearchParams for sok (?q=...)
+
+Sanity-database:
+  - 5 dokumenttyper: admin, category, customer, product, order
+  - 1 embedded type: orderproduct (inneholder product-ref + quantity)
+  - Relasjoner via references: order -> customer,
+    orderproduct -> product, product -> category
+
+GROQ-sporringer (6 totalt):
+  - Referanse-dereference: product->{ price, productname }
+  - Wildcard-sok: firstname match $term (med *John*)
+  - Joined queries: { "customer": *[...], "orders": *[...] }
+    (to sporringer i ett kall)
+  - Bilde-URL: "imageUrl": image.asset->url
+
+CSS:
+  - Ren CSS (3 filer: index.css, App.css, Layout.css)
+  - CSS-variabler, flexbox, grid, sticky navbar,
+    media queries (responsivt)
+  - Light/dark mode via prefers-color-scheme
